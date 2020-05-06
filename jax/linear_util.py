@@ -200,13 +200,16 @@ def wrap_init(f, params={}) -> WrappedFun:
   return WrappedFun(f, (), (), tuple(sorted(params.items())))
 
 
-def cache(call):
-  """Cache decorator for WrappedFun calls.
+def cache(call: callable):
+  """Memoization decorator for functions taking a WrappedFun as first argument.
+
   Args:
-    call: a function that takes a WrappedFun as a first argument
+    call: a Python callable that takes a WrappedFun as its first argument. The
+      underlying transforms and params on the WrappedFun are used as part of the
+      memoization cache key.
 
   Returns:
-     the memoized `call` function.
+     A memoized version of ``call``.
   """
   fun_caches = weakref.WeakKeyDictionary()
 

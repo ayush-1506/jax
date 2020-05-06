@@ -265,7 +265,6 @@ from .lax import (
   tanh,
   tanh_p,
   tie_in,
-  tie_in_p,
   top_k,
   top_k_p,
   transpose,
@@ -317,5 +316,4 @@ from .lax_parallel import (
   psum,
   psum_p,
   pswapaxes,
-  standard_pmap_primitive,
 )

@@ -207,7 +207,6 @@ deflinear(lax.transpose_p)
 deflinear(lax.slice_p)
 deflinear(lax.reduce_sum_p)
 deflinear(lax.reduce_window_sum_p)
-deflinear(lax.tie_in_p)
 deflinear(lax_fft.fft_p)
 deflinear(xla.device_put_p)
 

@@ -123,7 +123,6 @@ Operators
     square
     sub
     tan
-    tie_in
     top_k
     transpose
 

@@ -3269,7 +3269,7 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
         lambda: jnp.zeros(1.))
     self.assertRaisesRegex(
         TypeError,
-        "Shapes must be 1D sequences of concrete values of integer type.*\n"
+        r"Shapes must be 1D sequences of concrete values of integer type.*\n"
         "If using `jit`, try using `static_argnums` or applying `jit` to smaller subfunctions.",
         lambda: api.jit(jnp.zeros)(2))
 

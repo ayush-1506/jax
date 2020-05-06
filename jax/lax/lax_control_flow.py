@@ -54,15 +54,10 @@ _map = safe_map
 zip = safe_zip
 _reduce = functools.reduce
 
-
 @cache()
 def _initial_style_jaxpr(fun: Callable, in_tree, in_avals):
-  in_pvals = [pe.PartialVal.unknown(aval) for aval in in_avals]
   wrapped_fun, out_tree = flatten_fun_nokwargs(lu.wrap_init(fun), in_tree)
-  with core.initial_style_staging():
-    jaxpr, out_pvals, consts = pe.trace_to_jaxpr(
-      wrapped_fun, in_pvals, instantiate=True, stage_out=False)
-  out_avals = _map(raise_to_shaped, unzip2(out_pvals)[0])
+  jaxpr, out_avals, consts = pe.trace_to_jaxpr_dynamic(wrapped_fun, in_avals)
   const_avals = tuple(raise_to_shaped(core.get_aval(c)) for c in consts)
   typed_jaxpr = core.TypedJaxpr(pe.convert_constvars_jaxpr(jaxpr),
                                 (), const_avals + in_avals, out_avals)
@@ -431,8 +426,7 @@ def _while_partial_eval(trace: pe.JaxprTrace, *tracers: pe.Tracer, cond_nconsts:
   carry_uk = carry_init_uk
   for _ in range(1 + len(carry_uk)):
     body_jaxpr_known, _, carry_out_uk = pe.partial_eval_jaxpr(
-        body_jaxpr, body_consts_uk + carry_uk, instantiate=carry_uk,
-        trace_type=trace.master.trace_type)
+        body_jaxpr, body_consts_uk + carry_uk, instantiate=carry_uk)
     if carry_out_uk == carry_uk:
       break
     else:
@@ -441,8 +435,7 @@ def _while_partial_eval(trace: pe.JaxprTrace, *tracers: pe.Tracer, cond_nconsts:
     assert False, "Fixpoint not reached"
 
   cond_jaxpr_known, _, cond_uk = pe.partial_eval_jaxpr(
-    cond_jaxpr, cond_consts_uk + carry_uk, instantiate=False,
-    trace_type=trace.master.trace_type)
+      cond_jaxpr, cond_consts_uk + carry_uk, instantiate=False)
 
   if cond_uk[0] or  all([not uk for uk in unknowns]) or all(unknowns):
     # If conditional is unknown, or all inputs are known, or all are unknown,
@@ -655,18 +648,12 @@ def _cond_partial_eval(trace, *tracers, true_jaxpr, false_jaxpr, linear):
     params = dict(true_jaxpr=true_jaxpr, false_jaxpr=false_jaxpr, linear=linear)
     return trace.default_process_primitive(cond_p, tracers, params)
 
-  _, _, t_out_uks = pe.partial_eval_jaxpr(true_jaxpr, t_uk, instantiate=False,
-                                          trace_type=trace.master.trace_type)
-  _, _, f_out_uks = pe.partial_eval_jaxpr(false_jaxpr, f_uk, instantiate=False,
-                                          trace_type=trace.master.trace_type)
+  _, _, t_out_uks = pe.partial_eval_jaxpr(true_jaxpr, t_uk, instantiate=False)
+  _, _, f_out_uks = pe.partial_eval_jaxpr(false_jaxpr, f_uk, instantiate=False)
   out_uks = [a or b for a, b in zip(t_out_uks, f_out_uks)]
 
-  true_jaxpr_1, true_jaxpr_2, _ = pe.partial_eval_jaxpr(true_jaxpr, t_uk,
-                                                        instantiate=out_uks,
-                                                        trace_type=trace.master.trace_type)
-  false_jaxpr_1, false_jaxpr_2, _ = pe.partial_eval_jaxpr(false_jaxpr, f_uk,
-                                                          instantiate=out_uks,
-                                                          trace_type=trace.master.trace_type)
+  true_jaxpr_1, true_jaxpr_2, _ = pe.partial_eval_jaxpr(true_jaxpr, t_uk, instantiate=out_uks)
+  false_jaxpr_1, false_jaxpr_2, _ = pe.partial_eval_jaxpr(false_jaxpr, f_uk, instantiate=out_uks)
 
   num_t_res = len(true_jaxpr_1.out_avals) - len(out_uks)
   num_f_res = len(false_jaxpr_1.out_avals) - len(out_uks)
@@ -1065,11 +1052,6 @@ def _prune_zeros(ts):
 
 def _scan_partial_eval(trace, *tracers, reverse, length, num_consts, num_carry,
                        jaxpr, linear):
-  if trace.master.trace_type is pe.StagingJaxprTrace:
-    params = {"reverse": reverse, "length": length, "num_consts": num_consts,
-              "num_carry": num_carry, "jaxpr": jaxpr, "linear": linear}
-    return trace.default_process_primitive(scan_p, tracers, params)
-
   num_xs = len(jaxpr.in_avals) - num_carry - num_consts
   num_ys = len(jaxpr.out_avals) - num_carry
 
@@ -1085,8 +1067,7 @@ def _scan_partial_eval(trace, *tracers, reverse, length, num_consts, num_carry,
   for _ in range(1 + len(carry_uk)):
     unknowns = const_uk + carry_uk + xs_uk
     jaxpr_1, jaxpr_2, out_uk = pe.partial_eval_jaxpr(
-        jaxpr, unknowns, instantiate=carry_uk + [False] * num_ys,
-        trace_type=trace.master.trace_type)
+        jaxpr, unknowns, instantiate=carry_uk + [False] * num_ys)
     carry_uk_out, ys_uk = out_uk[:num_carry], out_uk[num_carry:]
     if carry_uk_out == carry_uk:
       break
@@ -1231,9 +1212,7 @@ def _transpose_scan_jaxpr(num_res1, num_c, num_res2, jaxpr):
   return _make_typed_jaxpr(transposed, res1_avals + c_avals + b_avals + res2_avals)
 
 def _make_typed_jaxpr(traceable: lu.WrappedFun, in_avals: Sequence[core.AbstractValue]):
-  pvals = [pe.PartialVal.unknown(aval) for aval in in_avals]
-  jaxpr, pvals_out, consts = pe.trace_to_jaxpr(traceable, pvals, instantiate=True)
-  out_avals, _ = unzip2(pvals_out)
+  jaxpr, out_avals, consts = pe.trace_to_jaxpr_dynamic(traceable, in_avals)
   return core.TypedJaxpr(jaxpr, consts, in_avals, _map(raise_to_shaped, out_avals))
 
 
@@ -1431,7 +1410,8 @@ def _stop_gradient_fun(f):
     args_avals = tuple(_map(_abstractify, args_flat))
     g = lambda a, b: f(*a, **b)
     jaxpr, consts, out_tree = _initial_style_jaxpr(g, in_args_tree, args_avals)
-    out = core.jaxpr_as_fun(jaxpr)(*lax.stop_gradient(consts + tuple(args_flat)))
+    all_args = _map(lax.stop_gradient, (*consts, *args_flat))
+    out = core.jaxpr_as_fun(jaxpr)(*all_args)
     return tree_unflatten(out_tree, out)
   return wrapper
 

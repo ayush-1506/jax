@@ -57,8 +57,7 @@ def jvpfun(instantiate, primals, tangents):
 def jvp_subtrace(master, primals, tangents):
   trace = JVPTrace(master, core.cur_sublevel())
   for x in list(primals) + list(tangents):
-    if isinstance(x, Tracer):
-      assert x._trace.level < trace.level
+    if isinstance(x, Tracer): assert x._trace.level < trace.level
   in_tracers = [JVPTracer(trace, x, t) if t is not zero else x
                 for x, t in zip(primals, tangents)]
   ans = yield in_tracers, {}
@@ -347,12 +346,11 @@ class JVPTrace(Trace):
 
   def post_process_call(self, call_primitive, out_tracers, params):
     primals, tangents = unzip2((t.primal, t.tangent) for t in out_tracers)
-    out = primals + tangents
+    out, treedef = tree_flatten((primals, tangents))
     del primals, tangents
     master = self.master
     def todo(x):
-      n = len(x) // 2
-      primals, tangents = x[:n], x[n:]
+      primals, tangents = tree_unflatten(treedef, x)
       trace = JVPTrace(master, core.cur_sublevel())
       return map(partial(JVPTracer, trace), primals, tangents)
     return out, todo
@@ -586,9 +584,7 @@ def jvp_jaxpr(jaxpr, nonzeros, instantiate):
   f_jvp, out_nonzeros = f_jvp_traceable(jvp(f, instantiate=instantiate), nonzeros)
   tangent_avals = [aval for aval, nz in zip(jaxpr.in_avals, nonzeros) if nz]
   avals_in = list(it.chain(jaxpr.in_avals, tangent_avals))
-  pvals = [pe.PartialVal.unknown(aval) for aval in avals_in]
-  jaxpr_out, pvals_out, literals_out = pe.trace_to_jaxpr(f_jvp, pvals, instantiate=True)
-  avals_out, _ = unzip2(pvals_out)
+  jaxpr_out, avals_out, literals_out = pe.trace_to_jaxpr_dynamic(f_jvp, avals_in)
   jaxpr_out = core.TypedJaxpr(jaxpr_out, literals_out, avals_in, avals_out)
   return jaxpr_out, out_nonzeros()
 
@@ -671,9 +667,7 @@ def defvjp_all(prim, custom_vjp):
       primals_out = [primals_out]
     out_avals = [raise_to_shaped(get_aval(x)) for x in primals_out]
     ct_pvals = [pe.PartialVal.unknown(aval) for aval in out_avals]
-    with core.initial_style_staging():
-      jaxpr, _, res = pe.trace_to_jaxpr(lu.wrap_init(vjp_py), ct_pvals,
-                                        instantiate=True)
+    jaxpr, _, res = pe.trace_to_jaxpr(lu.wrap_init(vjp_py), ct_pvals, instantiate=True)
     tangents_out = fun_lin_p.bind(*it.chain(res, tangents), trans_jaxpr=jaxpr,
                                   num_res=len(res), out_avals=out_avals)
     return primals_out + tangents_out

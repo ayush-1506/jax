@@ -75,7 +75,7 @@ class NNFunctionsTest(jtu.JaxTestCase):
     check_grads(nn.relu, (1.,), order=3, rtol=rtol)
     check_grads(nn.relu, (-1.,), order=3, rtol=rtol)
     jaxpr = jax.make_jaxpr(jax.grad(nn.relu))(0.)
-    self.assertEqual(len(jaxpr.jaxpr.eqns), 2)
+    self.assertGreaterEqual(len(jaxpr.jaxpr.eqns), 2)
 
   def testSoftplusValue(self):
     val = nn.softplus(89.)
@@ -88,7 +88,7 @@ class NNFunctionsTest(jtu.JaxTestCase):
   def testEluValue(self):
     val = nn.elu(1e4)
     self.assertAllClose(val, 1e4, check_dtypes=False)
-    
+
   def testGluValue(self):
     val = nn.glu(jnp.array([1.0, 0.0]))
     self.assertAllClose(val, jnp.array([0.5]), check_dtypes=True)
